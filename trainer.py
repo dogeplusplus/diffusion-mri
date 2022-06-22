@@ -1,19 +1,62 @@
+import cv2
 import torch
+import mlflow
+import typing as t
+import numpy as np
 import torch.nn.functional as F
-
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from tqdm import tqdm
 from torch import optim
-from datasets import load_dataset
-from torch.utils.data import DataLoader
+
+from einops import repeat
+from tempfile import TemporaryDirectory
+from torch.utils.data import DataLoader, Dataset
+from pathlib import Path
 from torchvision.transforms import (
     Compose,
     ToTensor,
     Lambda,
     RandomHorizontalFlip,
+    Resize,
 )
 
 from model import Unet
 from diffusion import DiffusionModel
 from beta_schedule import linear_beta_schedule
+
+
+class GITract(Dataset):
+    def __init__(self, images: t.List[Path], image_shape: t.Tuple[int, int] = (224, 224)):
+        self.images = np.array(images)
+        self.image_shape = image_shape
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx: int):
+        img_path = self.images[idx]
+
+        img = np.load(img_path)
+        img = cv2.resize(img, self.image_shape)
+
+        img = np.asarray(img, dtype=np.float32)
+        img /= img.max()
+        img = repeat(img, "h w -> c h w", c=3)
+
+
+        return img
+
+
+def generate_animation(images):
+    fig = plt.figure()
+    imgs = []
+    for img in images:
+        im = plt.imshow(img, cmap="gray", animated=True)
+        imgs.append([im])
+
+    animate = animation.ArtistAnimation(fig, imgs, interval=25, blit=True, repeat=False)
+    return animate
 
 
 def num_to_groups(num, divisor):
@@ -67,9 +110,10 @@ def main():
     timesteps = 200
     betas = linear_beta_schedule(timesteps=timesteps)
 
-    image_size = 28
-    channels = 1
-    batch_size = 64
+    image_size = 224
+    channels = 3
+    batch_size = 4
+    sample_every = 5
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = Unet(
@@ -82,18 +126,18 @@ def main():
     diffusion_model = DiffusionModel(model, betas)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-    dataset = load_dataset("fashion_mnist")
-    transformed_dataset = dataset.with_transform(transforms).remove_columns("label")
 
-    dataloader = DataLoader(transformed_dataset["train"], batch_size=batch_size, shuffle=True)
+    images = list(Path("../gi-tract/datasets/2d/images").rglob("*.npy"))
+
+    dataset = GITract(images)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     epochs = 5
 
     for epoch in range(epochs):
-        for step, batch in enumerate(dataloader):
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch}")
+        for batch in pbar:
+            batch = batch.to(device)
             optimizer.zero_grad()
-
-            batch_size = batch["pixel_values"].shape[0]
-            batch = batch["pixel_values"].to(device)
 
             t = torch.randint(0, timesteps, (batch_size,), device=device).long()
 
@@ -104,14 +148,25 @@ def main():
                 loss_type="huber"
             )
 
-            if step % 100 == 0:
-                print("Loss:", loss.item())
-
             loss.backward()
             optimizer.step()
+            pbar.set_postfix(loss=loss.item())
 
-    torch.save(model.state_dict(), "model.pt")
-    torch.save(model.betas, "betas.pt")
+        if epoch % sample_every == 0:
+            samples = diffusion_model.p_sample_loop(
+                shape=(batch_size, channels, image_size, image_size),
+                timesteps=timesteps,
+            )
+            torch.save(samples, f"samples/epoch_{epoch}.pt")
+            idx = np.random.randint(batch_size)
+            animation = generate_animation([x[idx].reshape(image_size, image_size, channels) for x in samples])
+
+            with TemporaryDirectory() as tmpdir:
+                temp_path = f"{tmpdir}/epoch_{epoch}.gif"
+                animation.save(temp_path)
+                mlflow.log_artifact(temp_path)
+
+            mlflow.pytorch.log_state_dict(model.state_dict(), "model.pt")
 
 
 if __name__ == "__main__":

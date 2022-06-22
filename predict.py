@@ -1,22 +1,10 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 
 from model import Unet
 from diffusion import DiffusionModel
 from beta_schedule import linear_beta_schedule
-
-
-def generate_animation(images):
-    fig = plt.figure()
-    imgs = []
-    for img in images:
-        im = plt.imshow(img, cmap="gray", animated=True)
-        imgs.append([im])
-
-    animate = animation.ArtistAnimation(fig, imgs, interval=25, blit=True, repeat=False)
-    return animate
 
 
 def main():
