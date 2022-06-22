@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from model import Unet
 from diffusion import DiffusionModel
 from beta_schedule import linear_beta_schedule
+from trainer import generate_animation
 
 
 def main():
