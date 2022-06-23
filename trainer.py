@@ -1,7 +1,5 @@
-import cv2
 import torch
 import mlflow
-import typing as t
 import numpy as np
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
@@ -14,30 +12,10 @@ from tempfile import TemporaryDirectory
 from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
 
+from dataset import MRIDataset
 from model import Unet
 from diffusion import DiffusionModel
 from beta_schedule import linear_beta_schedule
-
-
-class GITract(Dataset):
-    def __init__(self, images: t.List[Path], image_shape: t.Tuple[int, int] = (224, 224)):
-        self.images = np.array(images)
-        self.image_shape = image_shape
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx: int):
-        img_path = self.images[idx]
-
-        img = np.load(img_path)
-        img = cv2.resize(img, self.image_shape)
-
-        img = np.asarray(img, dtype=np.float32)
-        img /= img.max()
-        img = repeat(img, "h w -> c h w", c=1)
-
-        return img
 
 
 def generate_animation(images):
@@ -107,10 +85,11 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     images = list(Path("../gi-tract/datasets/2d/images").rglob("*.npy"))
+    images = [img for img in images if 60 <= int(str(img)[-8:-4]) <= 70]
 
-    dataset = GITract(images)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    epochs = 5
+    dataset = MRIDataset(images)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    epochs = 20
     step = 0
 
     for epoch in range(epochs):
@@ -145,7 +124,7 @@ def main():
                     animation.save(temp_path)
                     mlflow.log_artifact(temp_path, "samples")
 
-                mlflow.pytorch.log_state_dict(model.state_dict(), "model.pt")
+                mlflow.pytorch.log_state_dict(model.state_dict(), "model")
             
             step += 1
 
