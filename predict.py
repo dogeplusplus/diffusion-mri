@@ -1,4 +1,5 @@
 import torch
+import mlflow
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -8,8 +9,10 @@ from beta_schedule import linear_beta_schedule
 from trainer import generate_animation
 
 
+
 def main():
-    image_size = 28
+    
+    image_size = 128
     channels = 1
     dim_mults = (1,2,4,)
 

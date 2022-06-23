@@ -13,13 +13,6 @@ from einops import repeat
 from tempfile import TemporaryDirectory
 from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
-from torchvision.transforms import (
-    Compose,
-    ToTensor,
-    Lambda,
-    RandomHorizontalFlip,
-    Resize,
-)
 
 from model import Unet
 from diffusion import DiffusionModel
@@ -42,8 +35,7 @@ class GITract(Dataset):
 
         img = np.asarray(img, dtype=np.float32)
         img /= img.max()
-        img = repeat(img, "h w -> c h w", c=3)
-
+        img = repeat(img, "h w -> c h w", c=1)
 
         return img
 
@@ -94,26 +86,14 @@ def p_losses(
 
 
 def main():
-    transform = Compose([
-        RandomHorizontalFlip(),
-        ToTensor(),
-        Lambda(lambda t: (t * 2) - 1),
-    ])
-
-    def transforms(examples):
-        examples["pixel_values"] = [transform(image.convert("L")) for image in examples["image"]]
-        del examples["image"]
-
-        return examples
-
     # Beta schedule
     timesteps = 200
     betas = linear_beta_schedule(timesteps=timesteps)
 
-    image_size = 224
-    channels = 3
-    batch_size = 4
-    sample_every = 5
+    image_size = 64
+    channels = 1
+    batch_size = 8
+    sample_every = 1000
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = Unet(
@@ -126,12 +106,12 @@ def main():
     diffusion_model = DiffusionModel(model, betas)
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-
     images = list(Path("../gi-tract/datasets/2d/images").rglob("*.npy"))
 
     dataset = GITract(images)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     epochs = 5
+    step = 0
 
     for epoch in range(epochs):
         pbar = tqdm(dataloader, desc=f"Epoch {epoch}")
@@ -152,21 +132,22 @@ def main():
             optimizer.step()
             pbar.set_postfix(loss=loss.item())
 
-        if epoch % sample_every == 0:
-            samples = diffusion_model.p_sample_loop(
-                shape=(batch_size, channels, image_size, image_size),
-                timesteps=timesteps,
-            )
-            torch.save(samples, f"samples/epoch_{epoch}.pt")
-            idx = np.random.randint(batch_size)
-            animation = generate_animation([x[idx].reshape(image_size, image_size, channels) for x in samples])
+            if step % sample_every == 0:
+                samples = diffusion_model.p_sample_loop(
+                    shape=(batch_size, channels, image_size, image_size),
+                    timesteps=timesteps,
+                )
+                idx = np.random.randint(batch_size)
+                animation = generate_animation([x[idx].reshape(image_size, image_size, channels) for x in samples])
 
-            with TemporaryDirectory() as tmpdir:
-                temp_path = f"{tmpdir}/epoch_{epoch}.gif"
-                animation.save(temp_path)
-                mlflow.log_artifact(temp_path)
+                with TemporaryDirectory() as tmpdir:
+                    temp_path = f"{tmpdir}/epoch_{epoch}.gif"
+                    animation.save(temp_path)
+                    mlflow.log_artifact(temp_path, "samples")
 
-            mlflow.pytorch.log_state_dict(model.state_dict(), "model.pt")
+                mlflow.pytorch.log_state_dict(model.state_dict(), "model.pt")
+            
+            step += 1
 
 
 if __name__ == "__main__":

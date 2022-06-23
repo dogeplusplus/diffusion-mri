@@ -2,7 +2,6 @@ import math
 import torch
 import torch.nn as nn
 
-from tqdm import tqdm
 from torch import einsum
 from einops import rearrange
 from functools import partial
