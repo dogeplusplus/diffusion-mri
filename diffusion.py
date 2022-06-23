@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 from model import extract
 
+
 class DiffusionModel(nn.Module):
     def __init__(self, net, betas):
         super().__init__()
@@ -13,12 +14,15 @@ class DiffusionModel(nn.Module):
         self.betas = betas
         self.alphas = 1. - betas
         self.alphas_cumprod = torch.cumprod(self.alphas, axis=0)
-        self.alphas_cumprod_prev = F.pad(self.alphas_cumprod[:-1], (1, 0), value=1.0)
+        self.alphas_cumprod_prev = F.pad(
+            self.alphas_cumprod[:-1], (1, 0), value=1.0)
         self.sqrt_recip_alphas = torch.sqrt(1.0 / self.alphas)
 
         self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - self.alphas_cumprod)
-        self.posterior_variance = betas * (1. - self.alphas_cumprod_prev) / (1. - self.alphas_cumprod)
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(
+            1. - self.alphas_cumprod)
+        self.posterior_variance = betas * \
+            (1. - self.alphas_cumprod_prev) / (1. - self.alphas_cumprod)
 
     def forward(self, *args, **kwargs):
         return self.net(*args, **kwargs)
@@ -68,15 +72,14 @@ class DiffusionModel(nn.Module):
         if noise is None:
             noise = torch.randn_like(x_start)
 
-        sqrt_alphas_cumprod_t = extract(self.sqrt_alphas_cumprod, t, x_start.shape)
+        sqrt_alphas_cumprod_t = extract(
+            self.sqrt_alphas_cumprod, t, x_start.shape)
         sqrt_one_minus_alphas_cumprod_t = extract(
             self.sqrt_one_minus_alphas_cumprod, t, x_start.shape
         )
 
         return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
 
-
     def get_noisy_image(self, x_start, t):
         x_noisy = self.q_sample(x_start, t=t)
-        noisy_image = reverse_transform(x_noisy)
-        return noisy_image
+        return x_noisy
