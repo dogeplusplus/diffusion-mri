@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -66,7 +67,7 @@ class DiffusionModel(nn.Module):
             )
             imgs.append(img.cpu().numpy())
 
-        return imgs
+        return np.stack(imgs, axis=1)
 
     def q_sample(self, x_start, t, noise=None):
         if noise is None:

@@ -1,4 +1,5 @@
 import torch
+import imageio
 import mlflow
 import numpy as np
 import torch.nn.functional as F
@@ -9,6 +10,7 @@ import matplotlib.animation as animation
 from tqdm import tqdm
 from torch import optim
 from pathlib import Path
+from einops import rearrange
 from torchmetrics import MeanMetric
 from torchvision import transforms
 from tempfile import TemporaryDirectory
@@ -80,12 +82,13 @@ def main():
     betas = linear_beta_schedule(timesteps=timesteps)
 
     image_size = 32
-    channels = 1
-    batch_size = 8
+    channels = 3
+    batch_size = 128
     sample_every = 5
 
     epochs = 5
     display_every = 100
+    render_size = 128
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = Unet(
@@ -104,10 +107,17 @@ def main():
     preprocessing = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize((image_size, image_size)),
-        transforms.Grayscale(),
     ])
     dataset = CIFAR10(root="datasets", download=True,
                       transform=preprocessing)
+
+    postprocessing = transforms.Compose([
+        transforms.Lambda(lambda t: (t + 1) / 2),
+        transforms.Lambda(lambda t: rearrange(t, "b c h w -> b h w c")),
+        transforms.Lambda(lambda t: t * 255.),
+        transforms.Lambda(lambda t: t.astype(np.uint8)),
+        transforms.Resize((render_size, render_size)),
+    ])
 
     # dataset = MRIDataset(images)
     dataloader = DataLoader(
@@ -150,16 +160,15 @@ def main():
                 timesteps=timesteps,
             )
             idx = np.random.randint(batch_size)
-            animation = generate_animation(
-                [x[idx].reshape(image_size, image_size, channels) for x in samples])
+            image_samples = postprocessing(samples[idx])
+            # animation = generate_animation(image_samples)
 
             with TemporaryDirectory() as tmpdir:
                 temp_path = f"{tmpdir}/epoch_{epoch:05d}.gif"
-                animation.save(temp_path)
+                imageio.mimsave(temp_path, image_samples, fps=30)
                 mlflow.log_artifact(temp_path, "samples")
 
             mlflow.log_metric("loss", loss_metric.compute().item())
-
             mlflow.pytorch.log_state_dict(model.state_dict(), "model")
 
 
