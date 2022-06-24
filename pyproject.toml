@@ -11,6 +11,7 @@ torch = "^1.11.0"
 numpy = "^1.23.0"
 einops = "^0.4.1"
 tqdm = "^4.64.0"
+torchmetrics = "^0.9.1"
 
 [tool.poetry.dev-dependencies]
 
