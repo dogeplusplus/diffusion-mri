@@ -6,20 +6,20 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-
 from tqdm import tqdm
 from torch import optim
 from pathlib import Path
 from einops import rearrange
 from torchmetrics import MeanMetric
-from torchvision import transforms
 from tempfile import TemporaryDirectory
-from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
+from torchvision.datasets import CIFAR10
+from torchvision.transforms import Compose, ToTensor, Resize, Lambda
 
-from model import Unet
-from diffusion import DiffusionModel
 from beta_schedule import linear_beta_schedule
+
+from diffusion import DiffusionModel
+from model import Unet
 
 
 def generate_animation(images):
@@ -78,7 +78,7 @@ def p_losses(
 
 def main():
     # Beta schedule
-    timesteps = 500
+    timesteps = 100
     betas = linear_beta_schedule(timesteps=timesteps)
 
     image_size = 32
@@ -104,19 +104,19 @@ def main():
     images = list(Path("../gi-tract/datasets/2d/images").rglob("*.npy"))
     images = [img for img in images if 65 <= int(str(img)[-8:-4]) <= 70]
 
-    preprocessing = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize((image_size, image_size)),
+    preprocessing = Compose([
+        ToTensor(),
+        Resize((image_size, image_size)),
     ])
-    dataset = CIFAR10(root="datasets", download=True,
-                      transform=preprocessing)
+    dataset = CIFAR10(root="datasets", download=True, transform=preprocessing)
 
-    postprocessing = transforms.Compose([
-        transforms.Lambda(lambda t: (t + 1) / 2),
-        transforms.Lambda(lambda t: rearrange(t, "b c h w -> b h w c")),
-        transforms.Lambda(lambda t: t * 255.),
-        transforms.Lambda(lambda t: t.astype(np.uint8)),
-        transforms.Resize((render_size, render_size)),
+    postprocessing = Compose([
+        Lambda(lambda t: (t + 1) / 2),
+        Lambda(lambda t: t * 255.),
+        Lambda(lambda t: torch.from_numpy(t)),
+        Lambda(lambda t: F.interpolate(t, [render_size, render_size])),
+        Lambda(lambda t: rearrange(t, "b c h w -> b h w c")),
+        Lambda(lambda t: t.numpy().astype(np.uint8)),
     ])
 
     # dataset = MRIDataset(images)
@@ -125,6 +125,8 @@ def main():
         batch_size=batch_size,
         shuffle=True,
         drop_last=True,
+        num_workers=4,
+        pin_memory=True,
     )
 
     step = 0
