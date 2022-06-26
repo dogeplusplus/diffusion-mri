@@ -24,17 +24,17 @@ def generate_animation(images: np.ndarray) -> animation.Animation:
         im = plt.imshow(img, cmap="gray", animated=True)
         imgs.append([im])
 
-    animate = animation.ArtistAnimation(
+    _ = animation.ArtistAnimation(
         fig,
         imgs,
-        interval=1,
+        interval=5,
         blit=True,
         repeat=False,
         repeat_delay=3000,
     )
     plt.axis("off")
     plt.tight_layout()
-    return animate
+    plt.show()
 
 
 def load_run(client: mlflow.tracking.MlflowClient, run_id: str) -> nn.Module:
@@ -92,7 +92,6 @@ def main():
     tiles = tile_images(image_stack)
 
     generate_animation(tiles)
-    plt.show()
 
 
 if __name__ == "__main__":
