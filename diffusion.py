@@ -1,5 +1,6 @@
-import numpy as np
 import torch
+import typing as t
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -9,7 +10,13 @@ from model import extract
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self, net, betas):
+    def __init__(
+        self,
+        net: nn.Module,
+        betas: torch.Tensor,
+        shape: t.List[int],
+        timesteps: int
+    ):
         super().__init__()
         self.net = net
         self.betas = betas
@@ -24,6 +31,9 @@ class DiffusionModel(nn.Module):
             1. - self.alphas_cumprod)
         self.posterior_variance = betas * \
             (1. - self.alphas_cumprod_prev) / (1. - self.alphas_cumprod)
+
+        self.shape = shape
+        self.timesteps = timesteps
 
     def forward(self, *args, **kwargs):
         return self.net(*args, **kwargs)
@@ -48,21 +58,17 @@ class DiffusionModel(nn.Module):
             return model_mean + torch.sqrt(posterior_variance_t) * noise
 
     @torch.no_grad()
-    def p_sample_loop(
-        self,
-        shape,
-        timesteps,
-    ):
+    def p_sample_loop(self, batch_size):
         device = next(self.net.parameters()).device
 
-        b = shape[0]
+        shape = (batch_size,) + self.shape
         img = torch.randn(shape, device=device)
         imgs = []
 
-        for i in tqdm(reversed(range(0, timesteps)), desc="sampling loop time step", total=timesteps):
+        for i in tqdm(reversed(range(0, self.timesteps)), desc="sampling loop time step", total=self.timesteps):
             img = self.p_sample(
                 img,
-                torch.full((b,), i, device=device, dtype=torch.long),
+                torch.full((batch_size,), i, device=device, dtype=torch.long),
                 i,
             )
             imgs.append(img.cpu().numpy())

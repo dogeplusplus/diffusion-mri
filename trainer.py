@@ -3,8 +3,6 @@ import imageio
 import mlflow
 import numpy as np
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 
 from tqdm import tqdm
 from torch import optim
@@ -16,30 +14,10 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import Compose, ToTensor, Resize, Lambda
 
-from beta_schedule import linear_beta_schedule
-
-from diffusion import DiffusionModel
 from model import Unet
-
-
-def generate_animation(images):
-    fig = plt.figure()
-    imgs = []
-    for img in images:
-        im = plt.imshow(img, cmap="gray", animated=True)
-        imgs.append([im])
-
-    animate = animation.ArtistAnimation(
-        fig,
-        imgs,
-        interval=1,
-        blit=True,
-        repeat=False,
-        repeat_delay=3000,
-    )
-    plt.axis("off")
-    plt.tight_layout()
-    return animate
+from utils import tile_images
+from diffusion import DiffusionModel
+from beta_schedule import linear_beta_schedule
 
 
 def num_to_groups(num, divisor):
@@ -77,28 +55,38 @@ def p_losses(
 
 
 def main():
-    # Beta schedule
-    timesteps = 100
+    timesteps = 200
     betas = linear_beta_schedule(timesteps=timesteps)
 
     image_size = 32
     channels = 3
     batch_size = 128
     sample_every = 5
+    num_samples = 3 ** 2
 
-    epochs = 5
+    epochs = 20
     display_every = 100
     render_size = 128
+    dim_mults = (1, 2, 4,)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = Unet(
+
+    model_parameters = dict(
         dim=image_size,
         channels=channels,
-        dim_mults=(1, 2, 4,)
+        dim_mults=dim_mults,
     )
+
+    diffusion_parameters = dict(
+        shape=(channels, image_size, image_size),
+        timesteps=timesteps,
+    )
+
+    model = Unet(**model_parameters)
     model.to(device)
 
-    diffusion_model = DiffusionModel(model, betas)
+    diffusion_model = DiffusionModel(model, betas, **diffusion_parameters)
+
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     images = list(Path("../gi-tract/datasets/2d/images").rglob("*.npy"))
@@ -129,6 +117,15 @@ def main():
         pin_memory=True,
     )
 
+    # Log configuration
+    mlflow.log_params(diffusion_parameters)
+    mlflow.log_dict(model_parameters, "model_config.json")
+
+    with TemporaryDirectory() as temp_dir:
+        temp_file = Path(temp_dir, "betas.npy")
+        np.save(temp_file, betas.numpy())
+        mlflow.log_artifact(temp_file)
+
     step = 0
     for epoch in range(epochs):
         pbar = tqdm(dataloader, desc=f"Epoch {epoch}", ncols=0)
@@ -140,13 +137,7 @@ def main():
             optimizer.zero_grad()
 
             t = torch.randint(0, timesteps, (batch_size,), device=device).long()
-
-            loss = p_losses(
-                diffusion_model,
-                images,
-                t,
-                loss_type="huber"
-            )
+            loss = p_losses(diffusion_model, images, t, loss_type="huber")
 
             loss.backward()
             optimizer.step()
@@ -157,21 +148,19 @@ def main():
                 pbar.set_postfix(loss=loss_metric.compute().item())
 
         if epoch % sample_every == 0:
-            samples = diffusion_model.p_sample_loop(
-                shape=(batch_size, channels, image_size, image_size),
-                timesteps=timesteps,
-            )
-            idx = np.random.randint(batch_size)
-            image_samples = postprocessing(samples[idx])
-            # animation = generate_animation(image_samples)
+            samples = diffusion_model.p_sample_loop(num_samples)
+            image_samples = np.stack([postprocessing(x) for x in samples])
+            image_samples = tile_images(image_samples)
 
             with TemporaryDirectory() as tmpdir:
-                temp_path = f"{tmpdir}/epoch_{epoch:05d}.gif"
+                temp_path = Path(tmpdir, "animation.gif")
                 imageio.mimsave(temp_path, image_samples, fps=30)
-                mlflow.log_artifact(temp_path, "samples")
+                mlflow.log_artifact(temp_path, "gifs")
 
-            mlflow.log_metric("loss", loss_metric.compute().item())
+            mlflow.log_image(image_samples[-1], f"sample_{epoch:05d}.png")
             mlflow.pytorch.log_state_dict(model.state_dict(), "model")
+
+        mlflow.log_metric("loss", loss_metric.compute().item(), step=epoch)
 
 
 if __name__ == "__main__":
