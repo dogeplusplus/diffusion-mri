@@ -11,7 +11,7 @@ from einops import rearrange
 from torchmetrics import MeanMetric
 from tempfile import TemporaryDirectory
 from torch.utils.data import DataLoader
-from torchvision.datasets import CIFAR10
+from torchvision.datasets import FashionMNIST
 from torchvision.transforms import Compose, ToTensor, Resize, Lambda
 
 from model import Unet
@@ -59,7 +59,7 @@ def main():
     betas = linear_beta_schedule(timesteps=timesteps)
 
     image_size = 32
-    channels = 3
+    channels = 1
     batch_size = 128
     sample_every = 5
     num_samples = 3 ** 2
@@ -95,8 +95,9 @@ def main():
     preprocessing = Compose([
         ToTensor(),
         Resize((image_size, image_size)),
+        Lambda(lambda t: (t * 2) - 1),
     ])
-    dataset = CIFAR10(root="datasets", download=True, transform=preprocessing)
+    dataset = FashionMNIST(root="datasets", download=True, transform=preprocessing)
 
     postprocessing = Compose([
         Lambda(lambda t: (t + 1) / 2),
