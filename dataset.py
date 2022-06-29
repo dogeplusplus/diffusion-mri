@@ -1,29 +1,25 @@
-import cv2
 import typing as t
 import numpy as np
 
 from pathlib import Path
-from einops import repeat
+from torchvision import transforms
 from torch.utils.data import Dataset
 
 
 class MRIDataset(Dataset):
-    def __init__(self, images: t.List[Path], image_shape: t.Tuple[int, int] = (224, 224)):
+    def __init__(self, images: t.List[Path], transforms: transforms.Compose = None):
         self.images = np.array(images)
-        self.image_shape = image_shape
+        self.transforms = transforms
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, idx: int):
         img_path = self.images[idx]
-
         img = np.load(img_path)
-        img = cv2.resize(img, self.image_shape)
-
+        img = img / 255.
         img = np.asarray(img, dtype=np.float32)
-        img /= img.max()
-        img = repeat(img, "h w -> c h w", c=1)
+        if transforms:
+            img = self.transforms(img)
 
         return img
-

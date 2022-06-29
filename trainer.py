@@ -9,9 +9,10 @@ from torch import optim
 from pathlib import Path
 from einops import rearrange
 from torchmetrics import MeanMetric
+from torch.cuda.amp import GradScaler, autocast
 from tempfile import TemporaryDirectory
 from torch.utils.data import DataLoader
-from torchvision.datasets import FashionMNIST
+from torchvision.datasets import CIFAR10
 from torchvision.transforms import Compose, ToTensor, Resize, Lambda
 
 from model import Unet
@@ -55,11 +56,11 @@ def p_losses(
 
 
 def main():
-    timesteps = 200
+    timesteps = 500
     betas = linear_beta_schedule(timesteps=timesteps)
 
     image_size = 32
-    channels = 1
+    channels = 3
     batch_size = 128
     sample_every = 5
     num_samples = 3 ** 2
@@ -68,6 +69,7 @@ def main():
     display_every = 100
     render_size = 128
     dim_mults = (1, 2, 4,)
+    accumulation_steps = 4
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -86,18 +88,14 @@ def main():
     model.to(device)
 
     diffusion_model = DiffusionModel(model, betas, **diffusion_parameters)
-
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
-    images = list(Path("../gi-tract/datasets/2d/images").rglob("*.npy"))
-    images = [img for img in images if 65 <= int(str(img)[-8:-4]) <= 70]
 
     preprocessing = Compose([
         ToTensor(),
         Resize((image_size, image_size)),
         Lambda(lambda t: (t * 2) - 1),
     ])
-    dataset = FashionMNIST(root="datasets", download=True, transform=preprocessing)
+    scaler = GradScaler()
 
     postprocessing = Compose([
         Lambda(lambda t: (t + 1) / 2),
@@ -108,7 +106,7 @@ def main():
         Lambda(lambda t: t.numpy().astype(np.uint8)),
     ])
 
-    # dataset = MRIDataset(images)
+    dataset = CIFAR10(root="datasets", transform=preprocessing)
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -133,15 +131,23 @@ def main():
         loss_metric = MeanMetric()
         for batch in pbar:
             step += 1
-            images, _ = batch
-            images = images.to(device)
-            optimizer.zero_grad()
 
-            t = torch.randint(0, timesteps, (batch_size,), device=device).long()
-            loss = p_losses(diffusion_model, images, t, loss_type="huber")
+            with autocast():
+                images, _ = batch
+                images = images.to(device)
 
-            loss.backward()
+                t = torch.randint(0, timesteps, (batch_size,), device=device).long()
+                loss = p_losses(diffusion_model, images, t, loss_type="huber")
+                # TODO: figure out why the loss is infinity for the MRI dataset
+                loss = loss / accumulation_steps
+
+            scaler.scale(loss).backward()
             optimizer.step()
+
+            if (step+1) % accumulation_steps == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
 
             loss_metric.update(loss.item())
 
