@@ -18,7 +18,7 @@ from torchvision.transforms import Compose, ToTensor, Resize, Lambda
 from model import Unet
 from utils import tile_images
 from diffusion import DiffusionModel
-from beta_schedule import cosine_beta_schedule
+from beta_schedule import linear_beta_schedule
 
 
 def num_to_groups(num, divisor):
@@ -56,8 +56,8 @@ def p_losses(
 
 
 def main():
-    timesteps = 100
-    schedule_fn = cosine_beta_schedule
+    timesteps = 1000
+    schedule_fn = linear_beta_schedule
     betas = schedule_fn(timesteps=timesteps)
 
     image_size = 32
@@ -71,6 +71,7 @@ def main():
     render_size = 128
     dim_mults = (1, 2, 4,)
     accumulation_steps = 4
+    loss_type = "l1"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -83,7 +84,6 @@ def main():
     diffusion_parameters = dict(
         shape=(channels, image_size, image_size),
         timesteps=timesteps,
-        beta_schedule=schedule_fn.__name__,
     )
 
     model = Unet(**model_parameters)
@@ -120,6 +120,8 @@ def main():
 
     # Log configuration
     mlflow.log_params(diffusion_parameters)
+    mlflow.log_param("beta_schedule", schedule_fn.__name__)
+    mlflow.log_param("loss_type", loss_type)
     mlflow.log_dict(model_parameters, "model_config.json")
 
     with TemporaryDirectory() as temp_dir:
@@ -139,7 +141,7 @@ def main():
                 images = images.to(device)
 
                 t = torch.randint(0, timesteps, (batch_size,), device=device).long()
-                loss = p_losses(diffusion_model, images, t, loss_type="huber")
+                loss = p_losses(diffusion_model, images, t, loss_type=loss_type)
                 # TODO: figure out why the loss is infinity for the MRI dataset
                 loss = loss / accumulation_steps
 
