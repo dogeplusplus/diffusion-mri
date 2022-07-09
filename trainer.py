@@ -18,7 +18,7 @@ from torchvision.transforms import Compose, ToTensor, Resize, Lambda
 from model import Unet
 from utils import tile_images
 from diffusion import DiffusionModel
-from beta_schedule import linear_beta_schedule
+from beta_schedule import cosine_beta_schedule
 
 
 def num_to_groups(num, divisor):
@@ -56,8 +56,9 @@ def p_losses(
 
 
 def main():
-    timesteps = 500
-    betas = linear_beta_schedule(timesteps=timesteps)
+    timesteps = 100
+    schedule_fn = cosine_beta_schedule
+    betas = schedule_fn(timesteps=timesteps)
 
     image_size = 32
     channels = 3
@@ -82,6 +83,7 @@ def main():
     diffusion_parameters = dict(
         shape=(channels, image_size, image_size),
         timesteps=timesteps,
+        beta_schedule=schedule_fn.__name__,
     )
 
     model = Unet(**model_parameters)
