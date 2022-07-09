@@ -16,7 +16,7 @@ from torchvision.datasets import CIFAR10
 from torchvision.transforms import Compose, ToTensor, Resize, Lambda
 
 from model import Unet
-from utils import tile_images
+from utils import tile_images, save_graph
 from diffusion import DiffusionModel
 from beta_schedule import linear_beta_schedule
 
@@ -79,6 +79,7 @@ def main():
         dim=image_size,
         channels=channels,
         dim_mults=dim_mults,
+        use_convnext=False,
     )
 
     diffusion_parameters = dict(
@@ -128,6 +129,12 @@ def main():
         temp_file = Path(temp_dir, "betas.npy")
         np.save(temp_file, betas.numpy())
         mlflow.log_artifact(temp_file)
+
+        sample_x, _ = next(iter(dataloader))
+        sample_x = sample_x.to(device)
+        sample_t = torch.randint(0, timesteps, (batch_size,), device=device).long()
+        graph_path = save_graph(model, sample_x, sample_t, temp_dir)
+        mlflow.log_artifact(graph_path)
 
     step = 0
     for epoch in range(epochs):

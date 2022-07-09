@@ -198,8 +198,8 @@ class PreNorm(nn.Module):
 
 class Unet(nn.Module):
     def __init__(self, dim, init_dim=None, out_dim=None, dim_mults=(1, 2, 4, 8),
-             channels = 3, with_time_emb=True, resnet_block_groups=8, use_convnext=True,
-             convnext_mult=2):
+                 channels=3, with_time_emb=True, resnet_block_groups=8, use_convnext=True,
+                 convnext_mult=2):
         super().__init__()
 
         self.channels = channels
@@ -286,7 +286,6 @@ class Unet(nn.Module):
         x = self.mid_attn(x)
         x = self.mid_block2(x, t)
 
-
         for block1, block2, attn, upsample in self.ups:
             x = torch.cat((x, h.pop()), dim=1)
             x = block1(x, t)
@@ -295,4 +294,3 @@ class Unet(nn.Module):
             x = upsample(x)
 
         return self.final_conv(x)
-

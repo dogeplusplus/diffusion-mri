@@ -1,5 +1,8 @@
+import torch
 import numpy as np
+import torch.nn as nn
 
+from torchviz import make_dot
 from einops import rearrange
 
 
@@ -16,3 +19,17 @@ def tile_images(images: np.ndarray) -> np.ndarray:
     )
 
     return image_tiles
+
+
+def save_graph(model: nn.Module, x: torch.Tensor, t: torch.Tensor, save_dir: str) -> str:
+    graph = make_dot(
+        model(x, t),
+        params=dict(model.named_parameters()),
+        show_attrs=True,
+        show_saved=True,
+    )
+    ext = "jpg"
+    graph.format = ext
+    dest = f"{save_dir}/graph"
+    graph.render(dest)
+    return f"{dest}.{ext}"
